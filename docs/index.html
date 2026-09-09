@@ -66,6 +66,9 @@ main{padding:20px 24px 40px;display:flex;flex-direction:column;gap:20px}
 .chip b{color:var(--blue);font-weight:700}
 .chip.none{border-style:dashed;cursor:default;color:var(--text-disabled)}
 .limits{margin-top:12px;line-height:1.6;border-top:1px solid var(--border-subtle);padding-top:10px}
+.notice{background:#fef7e0;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;
+  font-size:12px;color:#8a5a00;margin:0 0 12px;line-height:1.5}
+.notice b{font-weight:700}
 
 .q{font-size:11px;font-weight:600;color:var(--text-faint);letter-spacing:.3px;margin-bottom:3px}
 .answer{font-size:13px;font-weight:500;color:var(--text-body);line-height:1.6;margin:8px 0 14px;white-space:pre-wrap}
@@ -176,6 +179,7 @@ pre{background:#1a1a2e;color:#cbd5e1;padding:14px;border-radius:8px;overflow-x:a
     <div class="spacer"></div>
     <div class="pill-info off" id="mode"><span class="dot"></span><span id="modetext">загрузка витрины…</span></div>
     <button class="hbtn" id="keybtn">Ключ API</button>
+    <button class="hbtn" id="clearbtn">Очистить</button>
     <button class="hbtn" id="srcbtn">Источники данных</button>
     <button class="hbtn" id="out">Выйти</button>
   </div>
@@ -440,7 +444,9 @@ async function send(q){
   const card = document.createElement('div');
   card.className = 'card';
   card.innerHTML = '<div class="q">' + esc(q) + '</div><div class="meta"><span class="spin"></span> считаю…</div>';
-  document.getElementById('feed').prepend(card);
+  const feed = document.getElementById('feed');
+  feed.innerHTML = '';            // на экране всегда один — последний — ответ
+  feed.appendChild(card);
   const t0 = performance.now();
   try {
     const d = await answer(q, t0);
@@ -451,7 +457,7 @@ async function send(q){
 }
 
 async function answer(question, t0){
-  let plan, mode = 'llm';
+  let plan, mode = 'llm', matched = '';
   if (apiKey()) {
     plan = parseJson(await claude(PROMPTS.system,
       '<question>\n' + question + '\n</question>\n\n' +
@@ -466,7 +472,7 @@ async function answer(question, t0){
       'Страница работает без ключа модели: отвечаю только на готовые вопросы из подсказок ' +
       'под строкой ввода. С ключом Claude API запрос строится под любой вопрос по витрине.',
       'demo', t0);
-    plan = Object.assign({}, d.plan); mode = 'demo';
+    plan = Object.assign({}, d.plan); mode = 'demo'; matched = d.q;
   }
 
   const sql = guard(plan.sql);
@@ -489,6 +495,7 @@ async function answer(question, t0){
     formula: plan.formula || plan.note || '',
     sources: used.map(t => Object.assign({table: t}, SOURCES[t])),
     verification: {unverified_numbers: bad, status: bad.length ? 'warn' : 'ok'},
+    matched_question: matched,
     mode: mode, elapsed: Math.round((performance.now() - t0) / 100) / 10,
   };
 }
@@ -501,10 +508,37 @@ function unanswerable(question, reason, mode, t0){
 }
 
 /* ───────────────────────── отрисовка ───────────────────────── */
+
+/* сброс экрана ответов */
+function clearFeed(){
+  document.getElementById('feed').innerHTML = '';
+  const empty = document.getElementById('empty');
+  if (empty) empty.style.display = '';
+  document.getElementById('q').value = '';
+  renderSug('');
+}
+document.getElementById('clearbtn').onclick = clearFeed;
+
+/* вопрос и заголовок часто совпадают по смыслу — второй раз не повторяем */
+function sameish(a, b){
+  const w = s => new Set(norm(s).match(/[\wа-я]{4,}/gi) || []);
+  const A = w(a), B = w(b);
+  if (!A.size || !B.size) return false;
+  let common = 0;
+  A.forEach(x => { if (B.has(x)) common++; });
+  return common / Math.min(A.size, B.size) >= 0.6;
+}
+
+function cardHead(d){
+  const twoLines = !sameish(d.question, d.title);
+  return '<div class="card-header"><div>'
+    + (twoLines ? '<div class="q">' + esc(d.question) + '</div>' : '')
+    + '<div class="card-title">' + esc(d.title) + '</div></div>';
+}
+
 function render(card, d){
   if (d.answerable === false) {
-    card.innerHTML = '<div class="card-header"><div><div class="q">' + esc(d.question) + '</div>'
-      + '<div class="card-title">' + esc(d.title) + '</div></div>'
+    card.innerHTML = cardHead(d)
       + '<span class="pill dn">нет данных для ответа</span></div>'
       + '<div class="answer">' + esc(d.answer) + '</div>'
       + '<div class="dim">Система отвечает только по загруженной витрине. '
@@ -512,9 +546,13 @@ function render(card, d){
     return;
   }
   const single = d.rows.length === 1 && d.columns.length === 1;
-  let html = '<div class="card-header"><div><div class="q">' + esc(d.question) + '</div>'
-    + '<div class="card-title">' + esc(d.title) + '</div></div>'
+  let html = cardHead(d)
     + '<div class="dim">' + d.rows.length + ' строк · ' + d.elapsed + ' с</div></div>';
+  if (d.matched_question && !sameish(d.question, d.matched_question)) {
+    html += '<div class="notice">Демо-режим без ключа модели: точного ответа на вашу формулировку '
+      + 'нет, показан ближайший готовый разрез — <b>' + esc(d.matched_question) + '</b>. '
+      + 'С ключом Claude API запрос строится под любой вопрос.</div>';
+  }
   if (single) html += '<div class="kpi">' + fmtFull(d.rows[0][0]) + '<small>' + esc(d.columns[0]) + '</small></div>';
   html += '<div class="answer">' + esc(d.answer) + '</div>';
   const chart = d.chart && d.chart.type && d.chart.type !== 'none' && d.rows.length > 1;
@@ -541,15 +579,15 @@ function provenance(d){
     + '<span class="dim">' + fmtFull(s.rows) + ' строк · '
     + '<a href="data/' + encodeURIComponent(s.file) + '">' + esc(s.file) + '</a>'
     + ' (лист ' + esc(s.sheet) + ') · ' + esc(s.system) + '</span></span>').join('');
-  const check = v.status === 'ok'
-    ? '<span class="pill up">✓ все числа сверены с результатом запроса</span>'
-    : '<span class="pill dn">⚠ не сверено: ' + (v.unverified_numbers || []).map(esc).join(', ')
-      + '</span> <span class="dim">— проверьте по таблице выше</span>';
+  // при успешной сверке молчим: подтверждать самих себя бессмысленно, важен только сбой
+  const check = v.status === 'ok' ? '' :
+    '<span class="pill dn">⚠ не сверено: ' + (v.unverified_numbers || []).map(esc).join(', ')
+    + '</span> <span class="dim">— проверьте по таблице выше</span>';
   return '<div class="prov">'
     + (d.formula ? '<div class="row"><div class="lbl">Как считаем</div><div class="val">'
         + '<span class="formula">' + esc(d.formula) + '</span></div></div>' : '')
     + (srcs ? '<div class="row"><div class="lbl">Откуда данные</div><div class="val">' + srcs + '</div></div>' : '')
-    + '<div class="row"><div class="lbl">Проверка</div><div class="val">' + check + '</div></div>'
+    + (check ? '<div class="row"><div class="lbl">Проверка</div><div class="val">' + check + '</div></div>' : '')
     + '</div>';
 }
 

@@ -333,6 +333,7 @@ def ask(body: Ask):
                             status_code=400)
 
     mode = "llm"
+    matched = ""                              # какой готовый вопрос подобран в демо-режиме
     try:
         if API_KEY:
             # вопрос передаём как данные в тегах, а не как часть инструкции
@@ -366,6 +367,7 @@ def ask(body: Ask):
                     "mode": "demo", "elapsed": round(time.time() - t0, 1),
                 }
             plan, mode = dict(d["plan"]), "demo"
+            matched = d["q"]
     except Exception as e:
         return JSONResponse({"error": f"Не удалось построить запрос: {e}"}, status_code=500)
 
@@ -407,6 +409,7 @@ def ask(body: Ask):
             "unverified_numbers": unverified,
             "status": "ok" if not unverified else "warn",
         },
+        "matched_question": matched,
         "mode": mode,
         "elapsed": round(time.time() - t0, 1),
     }

@@ -9,6 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <style>
 :root{
   /* PRIMARY */
@@ -78,6 +80,10 @@ main{padding:20px 24px 40px;display:flex;flex-direction:column;gap:20px}
 .notice{background:#fef7e0;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;
   font-size:12px;color:#8a5a00;margin:0 0 12px;line-height:1.5}
 .notice b{font-weight:700}
+.hdr-right{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.xbtn{border:1px solid var(--border-input);background:#fff;color:var(--text-muted);border-radius:6px;
+  padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer}
+.xbtn:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-light)}
 .empty{text-align:left}
 
 /* ── answer ── */
@@ -219,6 +225,28 @@ function fmtAxis(v){
   return cut(v, '');
 }
 function esc(s){ const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* «СуммаСоСкидкой» -> «Сумма со скидкой», «Скидка_проц» -> «Скидка» */
+function prettyCol(name){
+  let s = String(name || '').replace(/_/g, ' ')
+    .replace(/([а-яёa-z])([А-ЯЁA-Z])/g, '$1 $2')
+    .replace(/\s*(проц|процент|pct)(?=\s|$)/gi, ' ');   // \b не работает с кириллицей
+  const words = s.split(/\s+/).filter(Boolean).map((w, i) => {
+    if (w.length > 1 && w === w.toUpperCase()) return w;          // НДС, ККМ, SO
+    return i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w.toLowerCase();
+  });
+  return words.join(' ');
+}
+
+function isPercentCol(name){ return /проц|%|доля|маржа|рентабельн/i.test(String(name || '')); }
+
+/* значение с учётом смысла колонки: проценты показываем процентами */
+function fmtCell(v, col){
+  if (typeof v === 'number' && isPercentCol(col)) {
+    return v.toLocaleString('ru-RU', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + '%';
+  }
+  return fmtFull(v);
+}
 
 /* ── живые подсказки под строкой ввода ── */
 let SUG = [];
@@ -376,6 +404,107 @@ function cardHead(d){
     + '<div class="card-title">' + esc(d.title) + '</div></div>';
 }
 
+/* ───────────────────────── выгрузка результата ───────────────────────── */
+function fileName(d, ext){
+  const stamp = new Date().toISOString().slice(0, 10);
+  const name = (d.title || d.question || 'выгрузка')
+    .replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  return name + ' ' + stamp + '.' + ext;
+}
+
+/* второй лист — как посчитано: вопрос, формула, SQL и источники едут вместе с цифрами */
+function methodSheet(d){
+  const rows = [
+    ['Вопрос', d.question],
+    ['Ответ', d.answer],
+    ['Формула', d.formula || ''],
+    ['SQL-запрос', d.sql],
+  ];
+  (d.sources || []).forEach((s, i) => rows.push([
+    i ? '' : 'Источники',
+    s.title + ' (' + s.table + ') — ' + s.file + ', лист ' + s.sheet + ', ' + s.rows + ' строк']));
+  rows.push(['Выгружено', new Date().toLocaleString('ru-RU')]);
+  return rows;
+}
+
+function exportXlsx(d){
+  if (!window.XLSX) { alert('Библиотека выгрузки не загрузилась — проверьте интернет.'); return; }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([d.columns.map(prettyCol)].concat(d.rows));
+  ws['!cols'] = d.columns.map((c, i) => ({wch: Math.min(42, Math.max(
+    String(c).length + 2,
+    ...d.rows.slice(0, 200).map(r => String(r[i] === null || r[i] === undefined ? '' : r[i]).length + 2)))}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Данные');
+  const wm = XLSX.utils.aoa_to_sheet(methodSheet(d));
+  wm['!cols'] = [{wch: 14}, {wch: 110}];
+  XLSX.utils.book_append_sheet(wb, wm, 'Как посчитано');
+  XLSX.writeFile(wb, fileName(d, 'xlsx'));
+}
+
+function exportCsv(d){
+  const cell = v => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  // разделитель «;» и BOM — чтобы Excel с русской локалью открыл файл сразу правильно
+  const body = [d.columns.map(prettyCol)].concat(d.rows)
+    .map(r => r.map(cell).join(';')).join('\r\n');
+  const blob = new Blob(['\ufeff' + body], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName(d, 'csv');
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* слайд PowerPoint: заголовок, график, вывод и внизу — чем посчитано */
+function exportPptx(d, card){
+  if (!window.PptxGenJS) { alert('Библиотека PowerPoint не загрузилась — проверьте интернет.'); return; }
+  const pptx = new PptxGenJS();
+  pptx.layout = 'LAYOUT_16x9';                       // 10 x 5.625 дюйма
+  const s = pptx.addSlide();
+  const FONT = 'Inter';
+
+  s.addText(d.title || d.question, {x: 0.45, y: 0.28, w: 9.1, h: 0.45,
+    fontSize: 22, bold: true, color: '202124', fontFace: FONT});
+  s.addText(d.question, {x: 0.45, y: 0.74, w: 9.1, h: 0.28,
+    fontSize: 11, color: '80868B', fontFace: FONT});
+  s.addShape(pptx.ShapeType.line, {x: 0.45, y: 1.04, w: 9.1, h: 0,
+    line: {color: 'E8EAED', width: 1}});
+
+  const canvas = card.querySelector('canvas');
+  let y = 1.2;
+  if (canvas) {
+    s.addImage({data: canvas.toDataURL('image/png', 1), x: 0.45, y: y, w: 9.1, h: 2.8, sizing:
+      {type: 'contain', w: 9.1, h: 2.8}});
+    y += 2.95;
+  }
+
+  if (d.rows.length && (!canvas || d.rows.length <= 8)) {
+    const head = d.columns.map(c => ({text: prettyCol(c), options: {bold: true, color: '5F6368', fontSize: 9}}));
+    const body = d.rows.slice(0, canvas ? 8 : 12)
+      .map(r => r.map((v, i) => ({text: fmtCell(v, d.columns[i]),
+        options: {fontSize: 9, color: '3C4043', align: typeof v === 'number' ? 'right' : 'left'}})));
+    s.addTable([head].concat(body), {x: 0.45, y: y, w: 9.1, fontFace: FONT,
+      border: {type: 'solid', color: 'E8EAED', pt: 0.5}, autoPage: false});
+    y += Math.min(2.4, 0.24 * (Math.min(d.rows.length, canvas ? 8 : 12) + 1)) + 0.15;
+  }
+
+  if (d.answer) {
+    s.addText(d.answer, {x: 0.45, y: Math.min(y, 4.35), w: 9.1, h: 0.75,
+      fontSize: 11, color: '3C4043', fontFace: FONT, valign: 'top', shrinkText: true});
+  }
+
+  const src = (d.sources || []).map(x => x.file).join(', ');
+  s.addText([
+    {text: d.formula ? d.formula + '   ' : '', options: {color: '1A73E8'}},
+    {text: src ? 'Источник: ' + src : '', options: {color: '9AA0A6'}},
+  ], {x: 0.45, y: 5.15, w: 9.1, h: 0.3, fontSize: 8, fontFace: FONT});
+
+  pptx.writeFile({fileName: fileName(d, 'pptx')});
+}
+
 function render(card, d){
   if (d.answerable === false) {
     card.innerHTML = cardHead(d)
@@ -387,20 +516,26 @@ function render(card, d){
   }
   const single = d.rows.length === 1 && d.columns.length === 1;
   let html = cardHead(d)
-    + '<div class="dim">' + d.rows.length + ' строк · ' + d.elapsed + ' с</div></div>';
+    + '<div class="hdr-right"><span class="dim">' + d.rows.length + ' строк · ' + d.elapsed + ' с</span>'
+    + (d.rows.length ? '<button class="xbtn" data-x="xlsx">Excel</button>'
+                     + '<button class="xbtn" data-x="csv">CSV</button>'
+                     + '<button class="xbtn" data-x="pptx">Слайд</button>' : '')
+    + '</div></div>';
   if (d.matched_question && !sameish(d.question, d.matched_question)) {
     html += '<div class="notice">Демо-режим без ключа модели: точного ответа на вашу формулировку '
       + 'нет, показан ближайший готовый разрез — <b>' + esc(d.matched_question) + '</b>. '
       + 'С ключом Claude API запрос строится под любой вопрос.</div>';
   }
-  if (single) html += '<div class="kpi">' + fmtFull(d.rows[0][0]) + '<small>' + esc(d.columns[0]) + '</small></div>';
+  if (single) html += '<div class="kpi">' + fmtCell(d.rows[0][0], d.columns[0])
+    + '<small>' + esc(prettyCol(d.columns[0])) + '</small></div>';
   html += '<div class="answer">' + esc(d.answer) + '</div>';
   const chart = d.chart && d.chart.type && d.chart.type !== 'none' && d.rows.length > 1;
   if (chart) html += '<div class="chartbox"><canvas></canvas></div>';
   if (!single && d.rows.length) {
     html += '<div class="tbl-scroll"><table class="tbl"><thead><tr>'
-      + d.columns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>'
-      + d.rows.map(r => '<tr>' + r.map(v => '<td>' + fmtFull(v) + '</td>').join('') + '</tr>').join('')
+      + d.columns.map(c => '<th>' + esc(prettyCol(c)) + '</th>').join('') + '</tr></thead><tbody>'
+      + d.rows.map(r => '<tr>' + r.map((v, i) => '<td>' + fmtCell(v, d.columns[i]) + '</td>').join('')
+        + '</tr>').join('')
       + '</tbody></table></div>';
   }
   html += provenance(d);
@@ -408,6 +543,11 @@ function render(card, d){
   html += '<div class="meta">' + (d.mode === 'demo'
     ? 'готовый запрос (демо-режим без ключа)' : 'запрос сгенерирован моделью и выполнен по витрине') + '</div>';
   card.innerHTML = html;
+  const bx = card.querySelector('[data-x="xlsx"]'), bc = card.querySelector('[data-x="csv"]');
+  const bp = card.querySelector('[data-x="pptx"]');
+  if (bx) bx.onclick = () => exportXlsx(d);
+  if (bc) bc.onclick = () => exportCsv(d);
+  if (bp) bp.onclick = () => exportPptx(d, card);
   if (chart) drawChart(card.querySelector('canvas'), d);
 }
 
@@ -433,8 +573,9 @@ function provenance(d){
 /* подписи значений на графиках (chartjs-plugin-datalabels) */
 if (window.ChartDataLabels) Chart.register(window.ChartDataLabels);
 
-function fmtLabel(v){
+function fmtLabel(v, col){
   if (typeof v !== 'number') return String(v);
+  if (isPercentCol(col)) return fmtCell(v, col);
   return Math.abs(v) >= 1e6 ? fmtAxis(v) : fmtFull(v);
 }
 
@@ -452,7 +593,7 @@ function dataLabels(type, labels, ds){
     formatter: (v, ctx) => {
       if (v === null || v === undefined) return '';
       if (type === 'doughnut') return total ? Math.round(100 * v / total) + '%' : fmtLabel(v);
-      return fmtLabel(v);
+      return fmtLabel(v, ctx.dataset.colName);
     },
     color: ctx => type === 'doughnut' ? '#fff' : (isLastPoint(ctx) ? '#fff' : '#5f6368'),
     backgroundColor: ctx => isLastPoint(ctx) ? PALETTE[ctx.datasetIndex % PALETTE.length] : null,
@@ -478,13 +619,13 @@ function drawChart(cv, d){
   const ds = ys.map((i, k) => {
     const color = PALETTE[k % PALETTE.length];
     if (type === 'line') return {
-      label: d.columns[i], data: d.rows.map(r => r[i]),
+      label: prettyCol(d.columns[i]), colName: d.columns[i], data: d.rows.map(r => r[i]),
       borderColor: color, backgroundColor: 'transparent', pointBackgroundColor: color,
       borderWidth: 2.5, pointRadius: many ? 0 : 4, pointHoverRadius: 6, pointHitRadius: 14,
       tension: .4, fill: false,
     };
     return {
-      label: d.columns[i], data: d.rows.map(r => r[i]),
+      label: prettyCol(d.columns[i]), colName: d.columns[i], data: d.rows.map(r => r[i]),
       backgroundColor: type === 'doughnut' ? PALETTE : color,
       borderRadius: 5, borderSkipped: false, borderWidth: 0,
     };
@@ -506,7 +647,7 @@ function drawChart(cv, d){
           titleFont: {family: 'Inter', size: 10, weight: '700'},
           bodyFont: {family: 'Inter', size: 12, weight: '600'},
           callbacks: {label: c => ' ' + c.dataset.label + ': '
-            + fmtFull(c.parsed.y !== undefined && c.parsed.y !== null ? c.parsed.y : c.parsed)}
+            + fmtCell(c.parsed.y !== undefined && c.parsed.y !== null ? c.parsed.y : c.parsed, c.dataset.colName)}
         }
       },
       scales: type === 'doughnut' ? {} : {

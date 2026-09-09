@@ -72,6 +72,29 @@ main{padding:20px 24px 40px;display:flex;flex-direction:column;gap:20px}
   font-size:12px;color:#8a5a00;margin:0 0 12px;line-height:1.5}
 .notice b{font-weight:700}
 .hdr-right{display:flex;align-items:center;gap:8px;white-space:nowrap}
+
+/* внешний тултип графика — по гайду дашбордов */
+.ct-tooltip{position:fixed;z-index:9999;pointer-events:none;opacity:0;
+  background:#fff;border:1px solid #e2e8f0;border-radius:12px;
+  box-shadow:0 8px 32px rgba(0,0,0,.13),0 2px 8px rgba(0,0,0,.06);
+  padding:12px 14px;min-width:210px;max-width:320px;font-family:'Inter',sans-serif;
+  transition:opacity .1s ease}
+.ct-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;
+  color:#9aa0a6;margin-bottom:10px}
+.ct-hero{font-size:30px;font-weight:900;color:#202124;letter-spacing:-1.2px;line-height:1;
+  font-variant-numeric:tabular-nums}
+.ct-dec{color:#8f9aaa;font-weight:500;font-size:.55em;letter-spacing:0}
+.ct-metric{font-size:11px;font-weight:600;color:#5f6368;margin-top:5px}
+.ct-rows{margin-top:9px;padding-top:8px;border-top:1px dashed #e8eaed;
+  display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:center}
+.ct-name{font-size:11px;font-weight:500;color:#3c4043;white-space:nowrap}
+.ct-abs,.ct-delta{font-size:11px;font-weight:600;text-align:right;
+  font-variant-numeric:tabular-nums;color:#9aa0a6}
+.ct-abs.pos,.ct-delta.pos{color:#1e8e3e}
+.ct-abs.neg,.ct-delta.neg{color:#d93025}
+.ct-sep{height:1px;background:#f1f3f4;margin:10px 0}
+.ct-hint{display:flex;align-items:center;gap:5px;margin-top:9px;padding-top:8px;
+  border-top:1px dashed #e8eaed;font-size:10px;font-weight:500;color:#bdc1c6}
 .xbtn{border:1px solid var(--border-input);background:#fff;color:var(--text-muted);border-radius:6px;
   padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer}
 .xbtn:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-light)}
@@ -756,6 +779,110 @@ function provenance(d){
     + '</div>';
 }
 
+/* ── тултип: значение и важные дельты ──────────────────────────────────── */
+
+/* точка год назад ищется по подписи ('2026-06-05' -> '2025-06-05'); нет данных — нет строки */
+function yoyIndex(labels, i){
+  const m = String(labels[i]).match(/^(\d{4})(-\d{2}(?:-\d{2})?)?$/);
+  if (!m) return -1;
+  return labels.indexOf(String(+m[1] - 1) + (m[2] || ''));
+}
+
+function signed(v, digits){
+  return (v >= 0 ? '+' : '−') + Math.abs(v).toLocaleString('ru-RU',
+    {minimumFractionDigits: digits, maximumFractionDigits: digits});
+}
+
+/* строки дельт: имя | абсолютная разница | относительная */
+function deltaRows(dp, labels, isTime, type){
+  const data = dp.dataset.data, i = dp.dataIndex, col = dp.dataset.colName;
+  const v = typeof data[i] === 'number' ? data[i] : null;
+  if (v === null) return [];
+  const pct = isPercentCol(col);          // проценты сравниваем в процентных пунктах
+  const nums = data.filter(x => typeof x === 'number');
+  const rows = [];
+
+  if (type === 'doughnut') {
+    const total = nums.reduce((a, b) => a + b, 0);
+    if (total) rows.push({name: 'доля в общем', abs: (100 * v / total).toFixed(1).replace('.', ',') + '%',
+      rel: '', cls: ''});
+  }
+
+  const add = (base, name) => {
+    if (typeof base !== 'number') return;
+    const diff = v - base;
+    const cls = diff > 0 ? 'pos' : (diff < 0 ? 'neg' : '');
+    rows.push({
+      name: name,
+      abs: pct ? signed(diff, 1) + ' п.п.' : (diff >= 0 ? '+' : '−') + fmtLabel(Math.abs(diff), col),
+      rel: (!pct && base) ? signed(100 * diff / Math.abs(base), 1) + '%' : '',
+      cls: cls,
+    });
+  };
+
+  if (isTime) {
+    add(data[i - 1], 'к прошлой точке');
+    const j = yoyIndex(labels, i);
+    if (j >= 0 && j !== i) add(data[j], 'к прошлому году');
+  } else {
+    if (nums.length > 1) add(nums.reduce((a, b) => a + b, 0) / nums.length, 'к среднему');
+    add(data[i - 1], 'к предыдущему');
+  }
+  return rows;
+}
+
+/* крупное значение: дробная часть приглушена, как в гайде */
+function heroHtml(v, col){
+  const s = fmtCell(v, col);
+  const i = s.lastIndexOf(',');
+  return i < 0 ? esc(s) : esc(s.slice(0, i)) + '<span class="ct-dec">' + esc(s.slice(i)) + '</span>';
+}
+
+function tooltipBox(){
+  let el = document.getElementById('ct-tooltip');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ct-tooltip';
+    el.className = 'ct-tooltip';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function externalTooltip(ctx, labels, isTime, type){
+  const el = tooltipBox(), tt = ctx.tooltip;
+  if (!tt || tt.opacity === 0) { el.style.opacity = 0; return; }
+  const dps = tt.dataPoints || [];
+  if (!dps.length) { el.style.opacity = 0; return; }
+
+  let html = '<div class="ct-title">' + esc(String(labels[dps[0].dataIndex] ?? '')) + '</div>';
+  dps.forEach((dp, k) => {
+    const col = dp.dataset.colName;
+    const v = dp.parsed && dp.parsed.y !== undefined && dp.parsed.y !== null ? dp.parsed.y : dp.parsed;
+    if (k) html += '<div class="ct-sep"></div>';
+    html += '<div class="ct-hero">' + heroHtml(v, col) + '</div>'
+      + '<div class="ct-metric">' + esc(prettyCol(col || dp.dataset.label)) + '</div>';
+    const rows = deltaRows(dp, labels, isTime, type);
+    if (rows.length) {
+      html += '<div class="ct-rows">' + rows.map(r =>
+        '<span class="ct-name">' + esc(r.name) + '</span>'
+        + '<span class="ct-abs ' + r.cls + '">' + esc(r.abs) + '</span>'
+        + '<span class="ct-delta ' + r.cls + '">' + esc(r.rel) + '</span>').join('') + '</div>';
+    }
+  });
+  el.innerHTML = html;
+
+  const box = ctx.chart.canvas.getBoundingClientRect();
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let left = box.left + tt.caretX + 14;
+  let top = box.top + tt.caretY - h / 2;
+  if (left + w > window.innerWidth - 8) left = box.left + tt.caretX - w - 14;
+  top = Math.max(8, Math.min(top, window.innerHeight - h - 8));
+  el.style.left = Math.max(8, left) + 'px';
+  el.style.top = top + 'px';
+  el.style.opacity = 1;
+}
+
 /* подписи значений на графиках (chartjs-plugin-datalabels) */
 if (window.ChartDataLabels) Chart.register(window.ChartDataLabels);
 
@@ -801,6 +928,8 @@ function drawChart(cv, d){
   const labels = d.rows.map(r => String(r[xi]));
   const type = d.chart.type === 'pie' ? 'doughnut' : d.chart.type;
   const many = d.rows.length > 60;
+  // динамика — если это линия или подписи оси похожи на даты
+  const isTime = type === 'line' || /^\d{4}-\d{2}/.test(String(labels[0] || ''));
   const ds = ys.map((i, k) => {
     const color = PALETTE[k % PALETTE.length];
     if (type === 'line') return {label: prettyCol(d.columns[i]), colName: d.columns[i],
@@ -823,12 +952,8 @@ function drawChart(cv, d){
           position: type === 'doughnut' ? 'right' : 'top', align: 'end',
           labels: {boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle',
             font: {family: 'Inter', size: 10, weight: '700'}, color: '#5f6368', padding: 12}},
-        tooltip: {backgroundColor: '#fff', titleColor: '#202124', bodyColor: '#3c4043',
-          borderColor: '#e8eaed', borderWidth: 1, padding: 10, cornerRadius: 8,
-          titleFont: {family: 'Inter', size: 10, weight: '700'},
-          bodyFont: {family: 'Inter', size: 12, weight: '600'},
-          callbacks: {label: c => ' ' + c.dataset.label + ': '
-            + fmtCell(c.parsed.y !== undefined && c.parsed.y !== null ? c.parsed.y : c.parsed, c.dataset.colName)}},
+        tooltip: {enabled: false, position: 'nearest',
+          external: c => externalTooltip(c, labels, isTime, type)},
       },
       scales: type === 'doughnut' ? {} : {
         x: {grid: {display: false}, border: {display: false},

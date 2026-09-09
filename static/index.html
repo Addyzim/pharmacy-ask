@@ -116,7 +116,21 @@ main{padding:20px 24px 40px;display:flex;flex-direction:column;gap:20px}
   font-variant-numeric:tabular-nums;margin:4px 0 2px}
 .kpi small{display:block;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;
   color:var(--text-muted);margin-top:2px}
-.chartbox{position:relative;height:270px;margin:4px 0 14px}
+.chartbox{position:relative;height:270px;margin:4px 0 6px}
+.chart-note{margin:0 0 12px}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:2px 0 14px}
+.kpi-tile{border:1px solid var(--border);border-radius:10px;padding:9px 12px 10px;background:#fff}
+.kpi-lbl{font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text-faint)}
+.kpi-val{font-size:19px;font-weight:700;color:var(--text-dark);letter-spacing:-.4px;
+  font-variant-numeric:tabular-nums;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi-sub{font-size:11px;color:var(--text-ghost);margin-top:2px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.kpi-val.pos{color:var(--green)}
+.kpi-val.neg{color:var(--red)}
+.mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:14px}
+.mini-card{border:1px solid var(--border);border-radius:10px;padding:10px 12px 12px}
+.mini-title{font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.2px;margin-bottom:6px}
+.mini-box{position:relative;height:190px}
 
 /* ── table ── */
 .tbl-scroll{overflow:auto;max-height:340px;border:1px solid var(--border);border-radius:10px;
@@ -574,8 +588,12 @@ function render(card, d){
   if (single) html += '<div class="kpi">' + fmtCell(d.rows[0][0], d.columns[0])
     + '<small>' + esc(prettyCol(d.columns[0])) + '</small></div>';
   html += '<div class="answer">' + esc(d.answer) + '</div>';
+  html += kpiRow(d);
   const chart = d.chart && d.chart.type && d.chart.type !== 'none' && d.rows.length > 1;
-  if (chart) html += '<div class="chartbox"><canvas></canvas></div>';
+  if (chart) html += '<div class="chartbox"><canvas></canvas></div>'
+    + '<div class="dim chart-note" data-note></div>';
+  const specs = miniSpecs(d);
+  html += miniHtml(specs);
   if (!single && d.rows.length) {
     html += '<div class="tbl-scroll"><table class="tbl"><thead><tr>'
       + d.columns.map(c => '<th>' + esc(prettyCol(c)) + '</th>').join('') + '</tr></thead><tbody>'
@@ -593,7 +611,8 @@ function render(card, d){
   if (bx) bx.onclick = () => exportXlsx(d);
   if (bc) bc.onclick = () => exportCsv(d);
   if (bp) bp.onclick = () => exportPptx(d, card);
-  if (chart) drawChart(card.querySelector('canvas'), d);
+  if (chart) drawChart(card.querySelector('canvas:not([data-mini])'), d);
+  specs.forEach((sp, i) => drawMini(card.querySelector('[data-mini="' + i + '"]'), sp));
 }
 
 function provenance(d){
@@ -719,6 +738,190 @@ function externalTooltip(ctx, labels, isTime, type){
   el.style.opacity = 1;
 }
 
+/* ── мини-дашборд: KPI и дополнительный разрез из того же результата ───── */
+
+function metricIndex(d){
+  const ys = ((d.chart && d.chart.y) || []).map(y => d.columns.indexOf(y)).filter(i => i >= 0);
+  if (ys.length) return ys[0];
+  for (let i = 0; i < d.columns.length; i++) {
+    if (d.rows.length && d.rows.every(r => typeof r[i] === 'number')) return i;
+  }
+  return -1;
+}
+
+function labelIndex(d, mi){
+  const cx = d.columns.indexOf(d.chart && d.chart.x);
+  if (cx >= 0) return cx;
+  for (let i = 0; i < d.columns.length; i++) if (i !== mi) return i;
+  return 0;
+}
+
+/* складывать можно выручку и штуки, но не средний чек, проценты и цены */
+function isAdditive(col){
+  return !isPercentCol(col) && !/сред|глубин|чек|дней|цена|наценка|коэф|остаток$/i.test(String(col));
+}
+
+function isDateLabels(labels){ return /^\d{4}-\d{2}/.test(String(labels[0] || '')); }
+
+function kpiRow(d){
+  const mi = metricIndex(d);
+  if (mi < 0 || d.rows.length < 3) return '';
+  const col = d.columns[mi], li = labelIndex(d, mi);
+  const vals = d.rows.map(r => r[mi]).filter(v => typeof v === 'number');
+  if (vals.length < 3) return '';
+  const labels = d.rows.map(r => String(r[li]));
+  const time = isDateLabels(labels);
+  const sum = vals.reduce((a, b) => a + b, 0);
+  const avg = sum / vals.length;
+  const med = median(vals);
+  const maxV = Math.max.apply(null, vals), minV = Math.min.apply(null, vals);
+  const maxAt = labels[d.rows.findIndex(r => r[mi] === maxV)];
+  const minAt = labels[d.rows.findIndex(r => r[mi] === minV)];
+  const tiles = [];
+
+  if (isAdditive(col)) tiles.push({lbl: 'Итого', val: fmtCell(sum, col), sub: prettyCol(col)});
+  tiles.push({lbl: time ? 'В среднем за период' : 'В среднем', val: fmtCell(avg, col),
+              sub: vals.length + (time ? ' точек' : ' значений')});
+  if (med !== null) tiles.push({lbl: 'Медиана', val: fmtCell(med, col), sub: 'половина выше, половина ниже'});
+  tiles.push({lbl: time ? 'Пик' : 'Лидер', val: fmtCell(maxV, col), sub: maxAt});
+  if (!time) tiles.push({lbl: 'Минимум', val: fmtCell(minV, col), sub: minAt});
+  else {
+    const first = vals[0], last = vals[vals.length - 1];
+    if (first) {
+      const diff = 100 * (last - first) / Math.abs(first);
+      tiles.push({lbl: 'Конец к началу', val: signed(diff, 1) + '%',
+                  sub: labels[0] + ' → ' + labels[labels.length - 1],
+                  cls: diff > 0 ? 'pos' : (diff < 0 ? 'neg' : '')});
+    }
+  }
+
+  return '<div class="kpi-row">' + tiles.map(t =>
+    '<div class="kpi-tile"><div class="kpi-lbl">' + esc(t.lbl) + '</div>'
+    + '<div class="kpi-val ' + (t.cls || '') + '">' + t.val + '</div>'
+    + '<div class="kpi-sub">' + esc(t.sub || '') + '</div></div>').join('') + '</div>';
+}
+
+/* дополнительный разрез строится из того же результата, без новых запросов */
+function miniSpecs(d){
+  const specs = [], mi = metricIndex(d);
+  if (mi < 0 || d.rows.length < 4) return specs;
+  const col = d.columns[mi], li = labelIndex(d, mi);
+  const labels = d.rows.map(r => String(r[li]));
+  const vals = d.rows.map(r => typeof r[mi] === 'number' ? r[mi] : 0);
+
+  if (isDateLabels(labels) && /^\d{4}-\d{2}-\d{2}/.test(labels[0]) && d.rows.length >= 7) {
+    const names = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const sums = new Array(7).fill(0), cnts = new Array(7).fill(0);
+    labels.forEach((l, i) => {
+      const dt = new Date(l.slice(0, 10) + 'T00:00:00');
+      if (isNaN(dt)) return;
+      sums[dt.getDay()] += vals[i];
+      cnts[dt.getDay()]++;
+    });
+    const order = [1, 2, 3, 4, 5, 6, 0].filter(k => cnts[k]);
+    const add = isAdditive(col);
+    specs.push({
+      title: (add ? 'Сумма' : 'Среднее') + ' по дням недели',
+      type: 'bar', labels: order.map(k => names[k]), colName: col,
+      data: order.map(k => add ? sums[k] : sums[k] / cnts[k]),
+    });
+  } else if (isAdditive(col) && d.rows.length >= 4 && vals.every(v => v >= 0)) {
+    const pairs = labels.map((l, i) => [l, vals[i]]).sort((a, b) => b[1] - a[1]);
+    const top = pairs.slice(0, 6);
+    const rest = pairs.slice(6).reduce((a, p) => a + p[1], 0);
+    if (rest > 0) top.push(['Прочие', rest]);
+    specs.push({
+      title: 'Доля в общем итоге', type: 'doughnut', colName: col,
+      labels: top.map(p => p[0]), data: top.map(p => p[1]),
+    });
+  }
+  return specs;
+}
+
+function miniHtml(specs){
+  if (!specs.length) return '';
+  return '<div class="mini-grid">' + specs.map((sp, i) =>
+    '<div class="mini-card"><div class="mini-title">' + esc(sp.title) + '</div>'
+    + '<div class="mini-box"><canvas data-mini="' + i + '"></canvas></div></div>').join('') + '</div>';
+}
+
+function drawMini(cv, sp){
+  if (!cv) return;
+  const isPie = sp.type === 'doughnut';
+  const ds = [{
+    label: prettyCol(sp.colName), colName: sp.colName, data: sp.data,
+    backgroundColor: isPie ? PALETTE : PALETTE[0],
+    borderRadius: isPie ? 0 : 5, borderSkipped: false, borderWidth: 0,
+  }];
+  const med = isPie ? null : median(sp.data);
+  new Chart(cv, {
+    plugins: [medianPlugin],
+    type: sp.type,
+    data: {labels: sp.labels, datasets: ds},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      layout: {padding: {top: isPie ? 4 : 26, right: isPie ? 0 : 8}},
+      plugins: {
+        medianLine: med === null ? {} : {value: med, label: fmtLabel(med, sp.colName)},
+        datalabels: dataLabels(sp.type, sp.labels, ds),
+        legend: {display: isPie, position: 'right',
+          labels: {boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle',
+            font: {family: 'Inter', size: 10, weight: '700'}, color: '#5f6368', padding: 10}},
+        tooltip: {enabled: false, position: 'nearest',
+          external: c => externalTooltip(c, sp.labels, false, sp.type)},
+      },
+      scales: isPie ? {} : {
+        x: {grid: {display: false}, border: {display: false},
+            ticks: {font: {family: 'Inter', size: 10}, color: '#9aa0a6'}},
+        y: {beginAtZero: true, grid: {color: '#f1f5f9'}, border: {display: false},
+            ticks: {font: {family: 'Inter', size: 10}, color: '#9aa0a6',
+                    maxTicksLimit: 4, callback: v => fmtAxis(v)}},
+      },
+    },
+  });
+}
+
+/* полоса медианы: пунктир поперёк области графика с подписью справа */
+const medianPlugin = {
+  id: 'medianLine',
+  afterDatasetsDraw(chart, args, opts){
+    if (!opts || opts.value === null || opts.value === undefined) return;
+    const y = chart.scales.y;
+    if (!y) return;
+    const py = y.getPixelForValue(opts.value);
+    const area = chart.chartArea;
+    if (py < area.top || py > area.bottom) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#9aa0a6';
+    ctx.beginPath();
+    ctx.moveTo(area.left, py);
+    ctx.lineTo(area.right, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const text = 'медиана · ' + opts.label;
+    ctx.font = '700 10px Inter, sans-serif';
+    const w = ctx.measureText(text).width + 12;
+    const x = Math.max(area.left, area.right - w);
+    const top = py - 15 < area.top ? py + 3 : py - 15;
+    ctx.fillStyle = 'rgba(255,255,255,.92)';
+    ctx.fillRect(x, top, w, 13);
+    ctx.fillStyle = '#5f6368';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + 6, top + 7);
+    ctx.restore();
+  },
+};
+
+function median(values){
+  const a = values.filter(v => typeof v === 'number').sort((x, y) => x - y);
+  if (a.length < 3) return null;
+  const h = a.length >> 1;
+  return a.length % 2 ? a[h] : (a[h - 1] + a[h]) / 2;
+}
+
 /* подписи значений на графиках (chartjs-plugin-datalabels) */
 if (window.ChartDataLabels) Chart.register(window.ChartDataLabels);
 
@@ -781,13 +984,42 @@ function drawChart(cv, d){
       borderRadius: 5, borderSkipped: false, borderWidth: 0,
     };
   });
+  // пунктирная линия прошлого года — только по точкам, которые есть в самих данных
+  let yoyPoints = 0;
+  if (isTime && ys.length === 1) {
+    const base = d.rows.map(r => r[ys[0]]);
+    const prev = labels.map((_, i) => {
+      const j = yoyIndex(labels, i);
+      if (j < 0 || j === i) return null;
+      yoyPoints++;
+      return base[j];
+    });
+    if (yoyPoints) ds.push({
+      label: 'прошлый год', colName: d.columns[ys[0]], data: prev,
+      borderColor: '#92400e', backgroundColor: 'transparent', borderDash: [5, 4],
+      borderWidth: 2, pointRadius: 0, fill: false, tension: .4, spanGaps: true,
+      datalabels: {display: false},
+    });
+  }
+
+  const med = type === 'doughnut' ? null : median(ds[0].data);
+
+  const note = cv.closest('.card') ? cv.closest('.card').querySelector('[data-note]') : null;
+  if (note) {
+    note.textContent = isTime && !yoyPoints
+      ? 'Сравнения с прошлым годом нет: в витрине только данные за 2026 год.'
+      : (med !== null ? 'Пунктир — медиана ряда' + (yoyPoints ? ' и прошлый год' : '') + '.' : '');
+  }
+
   new Chart(cv, {
+    plugins: [medianPlugin],
     type: type,
     data: {labels: labels, datasets: ds},
     options: {
       responsive: true, maintainAspectRatio: false,
       layout: {padding: {top: type === 'doughnut' ? 10 : 34, right: type === 'doughnut' ? 0 : 24, bottom: 0, left: 0}},
       plugins: {
+        medianLine: med === null ? {} : {value: med, label: fmtLabel(med, ds[0].colName)},
         datalabels: dataLabels(type, labels, ds),
         legend: {display: type === 'doughnut' || ds.length > 1, position: type === 'doughnut' ? 'right' : 'top',
           align: 'end', labels: {boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle',

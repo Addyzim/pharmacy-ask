@@ -1,0 +1,106 @@
+{
+ "arrivals": {
+  "file": "Arrivals.XLSX",
+  "sheet": "TDSheet",
+  "system": "1С: Поступление товаров",
+  "title": "Приходы от поставщиков",
+  "rows": 70,
+  "size_kb": 9
+ },
+ "check_lines": {
+  "file": "CheckUASNew.XLSX",
+  "sheet": "TDSheet",
+  "system": "ККМ / УАС, строки чеков",
+  "title": "Строки чеков (детализация)",
+  "rows": 517,
+  "size_kb": 62
+ },
+ "cheques": {
+  "file": "ChequesWeeklyNew.XLSX",
+  "sheet": "TDSheet",
+  "system": "ККМ, шапки чеков",
+  "title": "Чеки (шапки)",
+  "rows": 400,
+  "size_kb": 28
+ },
+ "refusals": {
+  "file": "Refusals.XLSX",
+  "sheet": "TDSheet",
+  "system": "1С: Отказы покупателям",
+  "title": "Отказы (дефектура)",
+  "rows": 90,
+  "size_kb": 9
+ },
+ "so_days": {
+  "file": "SO days.xlsx",
+  "sheet": "TDSheet",
+  "system": "1С: Остатки на дату среза",
+  "title": "Остатки для SO days",
+  "rows": 118,
+  "size_kb": 8
+ },
+ "sales_online": {
+  "file": "SalesOnline.XLSX",
+  "sheet": "TDSheet",
+  "system": "Интернет-магазин",
+  "title": "Онлайн-заказы",
+  "rows": 160,
+  "size_kb": 27
+ },
+ "sales_weekly": {
+  "file": "SalesWeekly.XLSX",
+  "sheet": "TDSheet",
+  "system": "1С: Реализация товаров",
+  "title": "Продажи по позициям",
+  "rows": 350,
+  "size_kb": 32
+ },
+ "stock": {
+  "file": "Stock.XLSX",
+  "sheet": "TDSheet",
+  "system": "1С: Остатки по дням",
+  "title": "Остатки на складах",
+  "rows": 827,
+  "size_kb": 37
+ },
+ "movements": {
+  "file": "Движения товаров с ценами. Номенклатура серия (XLSX).xlsx",
+  "sheet": "TDSheet + TDSheet1",
+  "system": "1С: Движения по сериям",
+  "title": "Движение товара и цены по сериям",
+  "rows": 360,
+  "size_kb": 67
+ },
+ "sales_4m": {
+  "file": "Продажи 4 мес справочник.xlsx",
+  "sheet": "TDSheet",
+  "system": "1С: Продажи за 4 месяца",
+  "title": "Продажи за 4 месяца",
+  "rows": 220,
+  "size_kb": 23
+ },
+ "products": {
+  "file": "Справочник номенклатур.xlsx",
+  "sheet": "TDSheet",
+  "system": "1С: Справочник номенклатуры",
+  "title": "Справочник номенклатуры",
+  "rows": 20,
+  "size_kb": 7
+ },
+ "stores": {
+  "file": "Цель на Мес.xlsx",
+  "sheet": "Районы",
+  "system": "Мастер-данные сети",
+  "title": "Справочник аптек",
+  "rows": 8,
+  "size_kb": 7
+ },
+ "targets": {
+  "file": "Цель на Мес.xlsx",
+  "sheet": "Таргет",
+  "system": "План продаж",
+  "title": "Планы на месяц и неделю",
+  "rows": 8,
+  "size_kb": 7
+ }
+}

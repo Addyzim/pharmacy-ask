@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
 :root{
   /* PRIMARY */
@@ -390,6 +391,41 @@ function provenance(d){
     + '</div>';
 }
 
+/* подписи значений на графиках (chartjs-plugin-datalabels) */
+if (window.ChartDataLabels) Chart.register(window.ChartDataLabels);
+
+function fmtLabel(v){
+  if (typeof v !== 'number') return String(v);
+  return Math.abs(v) >= 1e6 ? fmtAxis(v) : fmtFull(v);
+}
+
+function dataLabels(type, labels, ds){
+  const lastIdx = labels.length - 1;
+  const step = Math.max(1, Math.ceil(labels.length / (type === 'line' ? 12 : 16)));
+  const total = ds[0].data.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+  const isLastPoint = ctx => type === 'line' && ctx.dataIndex === lastIdx;
+  return {
+    display: ctx => {
+      if (type === 'doughnut') return total ? ctx.dataset.data[ctx.dataIndex] / total >= 0.04 : true;
+      if (type === 'line') return ctx.dataIndex === lastIdx || ctx.dataIndex % step === 0;
+      return ctx.dataIndex % step === 0;
+    },
+    formatter: (v, ctx) => {
+      if (v === null || v === undefined) return '';
+      if (type === 'doughnut') return total ? Math.round(100 * v / total) + '%' : fmtLabel(v);
+      return fmtLabel(v);
+    },
+    color: ctx => type === 'doughnut' ? '#fff' : (isLastPoint(ctx) ? '#fff' : '#5f6368'),
+    backgroundColor: ctx => isLastPoint(ctx) ? PALETTE[ctx.datasetIndex % PALETTE.length] : null,
+    borderRadius: 4,
+    padding: ctx => isLastPoint(ctx) ? {top: 3, bottom: 3, left: 6, right: 6} : 2,
+    font: {family: 'Inter', size: 10, weight: '700'},
+    anchor: type === 'doughnut' ? 'center' : 'end',
+    align: type === 'doughnut' ? 'center' : 'top',
+    offset: 2, clamp: true,
+  };
+}
+
 function drawChart(cv, d){
   const cx = d.columns.indexOf(d.chart.x);
   const xi = cx >= 0 ? cx : 0;
@@ -419,8 +455,9 @@ function drawChart(cv, d){
     data: {labels: labels, datasets: ds},
     options: {
       responsive: true, maintainAspectRatio: false,
-      layout: {padding: {top: 20, right: type === 'doughnut' ? 0 : 24, bottom: 0, left: 0}},
+      layout: {padding: {top: type === 'doughnut' ? 10 : 34, right: type === 'doughnut' ? 0 : 24, bottom: 0, left: 0}},
       plugins: {
+        datalabels: dataLabels(type, labels, ds),
         legend: {display: type === 'doughnut' || ds.length > 1, position: type === 'doughnut' ? 'right' : 'top',
           align: 'end', labels: {boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle',
             font: {family: 'Inter', size: 10, weight: '700'}, color: '#5f6368', padding: 12}},

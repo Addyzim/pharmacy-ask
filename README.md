@@ -1,4 +1,4 @@
-# SAVII Ask — вопросы к данным аптечной сети
+# Pharmacy Ask — вопросы к данным аптечной сети
 
 Демо системы «вопрос → SQL → ответ». Пользователь пишет вопрос на русском,
 модель строит SQL к витрине, сервер выполняет его **только на чтение**, а интерфейс
@@ -14,7 +14,7 @@
 
 ```powershell
 pip install -r requirements.txt
-python etl.py                      # Excel -> savii.db + sql/*.sql (нужен один раз)
+python etl.py                      # Excel -> pharmacy.db + sql/*.sql (нужен один раз)
 $env:ANTHROPIC_API_KEY = "sk-ant-..."   # без ключа поднимется демо-режим
 python -m uvicorn app:app --port 8077
 ```
@@ -35,16 +35,16 @@ python -m uvicorn app:app --port 8077
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | ключ Claude API |
-| `SAVII_MODEL` | `claude-sonnet-5` | модель |
-| `SAVII_USERS` | `admin:admin` | логины через запятую: `user1:pass1,user2:pass2` |
-| `SAVII_SECRET` | `savii-demo-secret` | соль для подписи сессионной cookie |
+| `PHARMACY_MODEL` | `claude-sonnet-5` | модель |
+| `PHARMACY_USERS` | `admin:admin` | логины через запятую: `user1:pass1,user2:pass2` |
+| `PHARMACY_SECRET` | `pharmacy-demo-secret` | соль для подписи сессионной cookie |
 
 ## Ограничения системы (заявлены пользователю в интерфейсе)
 
 1. **Честность вместо выдумки.** Если данных для ответа нет, модель обязана вернуть
    `answerable: false` с объяснением, а не подменять вопрос похожим.
    Пустой результат запроса тоже показывается честно.
-2. **Только чтение.** База открыта как `file:savii.db?mode=ro`, плюс два рубежа:
+2. **Только чтение.** База открыта как `file:pharmacy.db?mode=ro`, плюс два рубежа:
    регулярка `guard()` (только `SELECT`/`WITH`, один запрос, без `;`) и
    `sqlite3.set_authorizer` — SQLite сам отклоняет всё, кроме `SELECT`/`READ`/`FUNCTION`.
 3. **Защита от инъекций.** Текст вопроса передаётся модели в теге `<question>` как данные,
@@ -81,8 +81,8 @@ python -m uvicorn app:app --port 8077
 
 * `data/*.xlsx` — исходные Excel-файлы
 * `sql/schema.sql` — DDL витрины
-* `sql/savii_dump.sql` — полный дамп данных
-* `savii.db` — готовая база SQLite
+* `sql/pharmacy_dump.sql` — полный дамп данных
+* `pharmacy.db` — готовая база SQLite
 
 ## Примеры вопросов
 
@@ -110,8 +110,8 @@ static/login.html  страница входа
 ## Деплой
 
 ```bash
-docker build -t savii-ask .
-docker run -p 8077:8077 -e ANTHROPIC_API_KEY=sk-ant-... savii-ask
+docker build -t pharmacy-ask .
+docker run -p 8077:8077 -e ANTHROPIC_API_KEY=sk-ant-... pharmacy-ask
 ```
 
 Порт задаётся переменной `PORT` (по умолчанию 8077).

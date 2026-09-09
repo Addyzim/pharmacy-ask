@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SAVII Ask — вопрос на русском -> SQL -> таблица, график, вывод и происхождение данных."""
+"""Pharmacy Ask — вопрос на русском -> SQL -> таблица, график, вывод и происхождение данных."""
 import hashlib
 import hmac
 import json
@@ -20,19 +20,37 @@ from provenance import FORMULAS, SOURCES as SRC, describe, tables_in_sql
 from schema import build_schema
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(BASE, "savii.db")
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-MODEL = os.environ.get("SAVII_MODEL", "claude-sonnet-5")
-SECRET = os.environ.get("SAVII_SECRET", "savii-demo-secret")
-USERS = dict(p.split(":", 1) for p in
-             os.environ.get("SAVII_USERS", "admin:admin").split(","))
-MAX_ROWS = 500
-COOKIE = "savii_session"
 
-app = FastAPI(title="SAVII Ask")
+
+def load_env_file():
+    """Подхватываем .env рядом с приложением — его пишет лаунчер."""
+    path = os.path.join(BASE, ".env")
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+load_env_file()
+
+DB = os.path.join(BASE, "pharmacy.db")
+API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+MODEL = os.environ.get("PHARMACY_MODEL", "claude-sonnet-5")
+SECRET = os.environ.get("PHARMACY_SECRET", "pharmacy-demo-secret")
+USERS = dict(p.split(":", 1) for p in
+             os.environ.get("PHARMACY_USERS", "admin:admin").split(","))
+MAX_ROWS = 500
+COOKIE = "pharmacy_session"
+
+app = FastAPI(title="Pharmacy Ask")
 SCHEMA = build_schema(DB)
 
-SYSTEM = """Ты — аналитик аптечной сети SAVII. Пользователь задаёт вопрос на русском,
+SYSTEM = """Ты — аналитик аптечной сети. Пользователь задаёт вопрос на русском,
 ты пишешь ОДИН SQL-запрос к SQLite и выбираешь, как показать ответ.
 
 СХЕМА ДАННЫХ:
@@ -68,7 +86,7 @@ SYSTEM = """Ты — аналитик аптечной сети SAVII. Поль�
 {"answerable": false, "reason": "чего именно не хватает в витрине"}
 chart.type = "none", если результат — одно число."""
 
-INSIGHT = """Ты — аналитик SAVII. Ниже вопрос пользователя и результат SQL-запроса.
+INSIGHT = """Ты — аналитик аптечной сети. Ниже вопрос пользователя и результат SQL-запроса.
 
 ЖЁСТКОЕ ПРАВИЛО: используй ТОЛЬКО числа, которые есть в результате запроса или прямо
 из них считаются (сумма, разница, доля). Ничего не додумывай и не добавляй знаний извне.
@@ -265,7 +283,7 @@ def sources():
         })
     out.sort(key=lambda x: -x["rows"])
     return {"sources": out,
-            "sql_dump": "/download/sql/savii_dump.sql",
+            "sql_dump": "/download/sql/pharmacy_dump.sql",
             "sql_schema": "/download/sql/schema.sql",
             "sqlite_db": "/download/db"}
 
@@ -288,7 +306,7 @@ def dl_sql(name: str):
 
 @app.get("/download/db")
 def dl_db():
-    return FileResponse(DB, filename="savii.db")
+    return FileResponse(DB, filename="pharmacy.db")
 
 
 @app.get("/api/schema")

@@ -2,13 +2,13 @@
 chcp 65001 > nul
 cd /d "%~dp0"
 
-if not exist savii.db (
+if not exist pharmacy.db (
   echo Собираю витрину из Excel...
   python etl.py
 )
 
 echo.
-echo   SAVII Ask: http://127.0.0.1:8077   логин admin / пароль admin
+echo   Pharmacy Ask: http://127.0.0.1:8077   логин admin / пароль admin
 echo   Ctrl+C — остановить
 echo.
 

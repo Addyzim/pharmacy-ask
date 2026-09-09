@@ -1,4 +1,4 @@
--- SAVII Ask: структура витрины (SQLite)
+-- Pharmacy Ask: структура витрины (SQLite)
 
 CREATE TABLE "arrivals" (
 "Номер" TEXT,

@@ -5,7 +5,7 @@ import pandas as pd
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(BASE, "data")
-DB = os.path.join(BASE, "savii.db")
+DB = os.path.join(BASE, "pharmacy.db")
 
 # файл -> (лист, имя таблицы)
 SOURCES = [
@@ -106,13 +106,13 @@ def export_sql(con: sqlite3.Connection):
     ddl = [r[0] for r in con.execute(
         "select sql from sqlite_master where type='table' and sql is not null")]
     with io.open(os.path.join(sqldir, "schema.sql"), "w", encoding="utf-8") as f:
-        f.write("-- SAVII Ask: структура витрины (SQLite)\n\n")
+        f.write("-- Pharmacy Ask: структура витрины (SQLite)\n\n")
         f.write(";\n\n".join(ddl) + ";\n")
-    with io.open(os.path.join(sqldir, "savii_dump.sql"), "w", encoding="utf-8") as f:
-        f.write("-- SAVII Ask: полная выгрузка данных (SQLite dump)\n")
+    with io.open(os.path.join(sqldir, "pharmacy_dump.sql"), "w", encoding="utf-8") as f:
+        f.write("-- Pharmacy Ask: полная выгрузка данных (SQLite dump)\n")
         for line in con.iterdump():
             f.write(line + "\n")
-    print("SQL выгрузка: sql/schema.sql, sql/savii_dump.sql")
+    print("SQL выгрузка: sql/schema.sql, sql/pharmacy_dump.sql")
 
 
 if __name__ == "__main__":

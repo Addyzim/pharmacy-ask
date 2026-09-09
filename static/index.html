@@ -132,6 +132,25 @@ main{padding:20px 24px 40px;display:flex;flex-direction:column;gap:20px}
 .mini-title{font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:.2px;margin-bottom:6px}
 .mini-box{position:relative;height:190px}
 
+/* конструктор таблиц */
+.bcol{margin-bottom:14px}
+.bchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.bchip{border:1px solid var(--border-input);background:#fff;color:var(--text-body);
+  border-radius:999px;padding:6px 13px;font-size:12px;font-weight:500;cursor:pointer;
+  font-family:'Inter',sans-serif}
+.bchip:hover{border-color:var(--blue);color:var(--blue)}
+.bchip.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+.bchip.off{opacity:.4;border-style:dashed}
+.bchip.small{padding:4px 10px;font-size:11px}
+.bwarn{background:#fef7e0;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;
+  font-size:12px;color:#8a5a00;line-height:1.5;margin:4px 0 12px}
+.bwarn div+div{margin-top:5px}
+.brow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+.brow .btn-primary{margin:0 0 0 auto;padding:9px 20px}
+.bsql summary{margin-top:12px}
+.tbl-details{margin-top:14px}
+.tbl-details>summary{margin-bottom:8px}
+
 /* ── table ── */
 .tbl-scroll{overflow:auto;max-height:340px;border:1px solid var(--border);border-radius:10px;
   display:inline-block;max-width:100%;vertical-align:top}
@@ -206,6 +225,7 @@ pre{background:#1a1a2e;color:#cbd5e1;padding:14px;border-radius:8px;overflow-x:a
     <div class="brand">Pharmacy <span>Ask</span><em>вопросы к данным аптечной сети на русском</em></div>
     <div class="spacer"></div>
     <div class="pill-info" id="mode"><span class="dot"></span><span id="modetext">…</span></div>
+    <button class="hbtn" id="builderbtn">Конструктор</button>
     <button class="hbtn" id="clearbtn">Очистить</button>
     <button class="hbtn" id="srcbtn">Источники данных</button>
     <button class="hbtn" id="out">Выйти</button>
@@ -355,6 +375,208 @@ document.getElementById('out').onclick = async () => {
   await fetch('/api/logout', {method:'POST'});
   location.href = '/login';
 };
+
+
+const CATALOG_URL = '/api/model';
+const modal = document.getElementById('modal'), sheet = document.getElementById('sheet');
+const closeBtn = '<button class="close" data-close-modal>×</button>';
+document.addEventListener('click', function(e){
+  if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-close-modal')) {
+    modal.classList.remove('on');
+  }
+});
+
+async function runBuilderQuery(sql, title, chart, formula){
+  const r = await fetch('/api/run', {method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({sql: sql, title: title, chart: chart, formula: formula})});
+  if (r.status === 401) { location.href = '/login'; throw new Error('нужен вход'); }
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || 'ошибка запроса');
+  return d;
+}
+/* ── конструктор таблиц: измерения + метрики, как в BI ──────────────────── */
+let CATALOG = null;
+const BSEL = {dims: [], metrics: [], limit: 50};
+
+async function loadModel(){
+  if (CATALOG) return CATALOG;
+  CATALOG = await (await fetch(CATALOG_URL)).json();
+  return CATALOG;
+}
+
+const dimById = id => CATALOG.dims.find(d => d.id === id);
+const metById = id => CATALOG.metrics.find(m => m.id === id);
+
+/* измерение доступно, если оно есть во всех витринах выбранных метрик */
+function dimBlockedBy(dim, metricIds){
+  return metricIds.map(metById).filter(m => !dim.facts[m.fact]);
+}
+function metricBlockedBy(met, dimIds){
+  return dimIds.map(dimById).filter(d => !d.facts[met.fact]);
+}
+
+function builderWarnings(){
+  const out = [];
+  BSEL.dims.forEach(id => {
+    const dim = dimById(id);
+    dimBlockedBy(dim, BSEL.metrics).forEach(m => out.push(
+      'Метрика «' + m.title + '» считается по витрине ' + CATALOG.facts[m.fact].title.toLowerCase()
+      + ', а измерения «' + dim.title + '» там нет — общего ключа между ними не существует.'));
+  });
+  if (!BSEL.metrics.length) out.push('Выберите хотя бы одну метрику — иначе считать нечего.');
+  return out;
+}
+
+/* сборка SQL по каталогу: одна витрина — обычный GROUP BY,
+   несколько — универсум измерений и левые соединения */
+function buildSql(){
+  const dims = BSEL.dims.map(dimById);
+  const mets = BSEL.metrics.map(metById);
+  if (!mets.length) return '';
+  // несовместимый набор не собираем вовсе — интерфейс покажет предупреждение
+  if (dims.some(d => mets.some(m => !d.facts[m.fact]))) return '';
+  const facts = [];
+  mets.forEach(m => { if (facts.indexOf(m.fact) < 0) facts.push(m.fact); });
+  const lim = ' LIMIT ' + BSEL.limit;
+
+  const dimSql = (d, f) => d.facts[f].expr + ' AS "' + d.alias + '"';
+  const joinsFor = (f) => {
+    const set = [];
+    dims.forEach(d => {
+      const j = d.facts[f] && d.facts[f].join;
+      if (j && CATALOG.joins[f] && CATALOG.joins[f][j] && set.indexOf(CATALOG.joins[f][j]) < 0) {
+        set.push(CATALOG.joins[f][j]);
+      }
+    });
+    return set.length ? ' ' + set.join(' ') : '';
+  };
+  const whereFor = f => CATALOG.facts[f].where ? ' WHERE ' + CATALOG.facts[f].where : '';
+
+  const block = (f) => {
+    const cols = dims.map(d => dimSql(d, f))
+      .concat(mets.filter(m => m.fact === f).map(m => m.agg + ' AS "' + m.alias + '"'));
+    return 'SELECT ' + cols.join(', ') + ' FROM ' + f + joinsFor(f) + whereFor(f)
+      + (dims.length ? ' GROUP BY ' + dims.map((_, i) => i + 1).join(', ') : '');
+  };
+
+  const timeFirst = dims.length && ['day', 'month', 'weekday'].indexOf(dims[0].id) >= 0;
+  const order = mets.length && dims.length
+    ? ' ORDER BY ' + (timeFirst ? '1' : '"' + mets[0].alias + '" DESC') : '';
+
+  if (facts.length === 1) return block(facts[0]) + order + lim;
+
+  if (!dims.length) {
+    const ctes = facts.map((f, i) => 'm' + i + ' AS (' + block(f) + ')');
+    return 'WITH ' + ctes.join(', ') + ' SELECT '
+      + mets.map(m => '"' + m.alias + '"').join(', ') + ' FROM '
+      + facts.map((_, i) => 'm' + i).join(', ') + lim;
+  }
+
+  const dimCols = dims.map(d => '"' + d.alias + '"').join(', ');
+  const universe = facts.map(f => 'SELECT DISTINCT ' + dims.map(d => dimSql(d, f)).join(', ')
+    + ' FROM ' + f + joinsFor(f) + whereFor(f)).join(' UNION ');
+  const ctes = ['dims AS (' + universe + ')']
+    .concat(facts.map((f, i) => 'm' + i + ' AS (' + block(f) + ')'));
+  return 'WITH ' + ctes.join(', ') + ' SELECT '
+    + dims.map(d => 'dims."' + d.alias + '"').join(', ') + ', '
+    + mets.map(m => '"' + m.alias + '"').join(', ')
+    + ' FROM dims ' + facts.map((_, i) => 'LEFT JOIN m' + i + ' USING (' + dimCols + ')').join(' ')
+    + order + lim;
+}
+
+function builderTitle(){
+  const mets = BSEL.metrics.map(id => metById(id).title).join(', ');
+  const dims = BSEL.dims.map(id => dimById(id).title.toLowerCase()).join(' и ');
+  return dims ? mets + ' по ' + dims : mets;
+}
+
+function builderChart(){
+  if (!BSEL.dims.length || !BSEL.metrics.length) return {type: 'none'};
+  const d0 = dimById(BSEL.dims[0]), m0 = metById(BSEL.metrics[0]);
+  const time = ['day', 'month'].indexOf(d0.id) >= 0;
+  return {type: time ? 'line' : 'hbar', x: d0.alias, y: [m0.alias]};
+}
+
+function renderBuilder(){
+  const warns = builderWarnings();
+  const chips = (items, kind) => items.map(it => {
+    const on = BSEL[kind].indexOf(it.id) >= 0;
+    const blocked = kind === 'dims'
+      ? (!on && dimBlockedBy(it, BSEL.metrics).length)
+      : (!on && metricBlockedBy(it, BSEL.dims).length);
+    const hint = blocked ? ' title="Не сочетается с текущим выбором"' : '';
+    return '<button class="bchip' + (on ? ' on' : '') + (blocked ? ' off' : '') + '"'
+      + ' data-kind="' + kind + '" data-id="' + it.id + '"' + hint + '>'
+      + esc(it.title) + '</button>';
+  }).join('');
+
+  const sql = (BSEL.metrics.length && !warns.length) ? buildSql() : '';
+  document.getElementById('bbody').innerHTML =
+    '<div class="bcol"><div class="section-label">Измерения — разрезы</div>'
+    + '<div class="bchips">' + chips(CATALOG.dims, 'dims') + '</div></div>'
+    + '<div class="bcol"><div class="section-label">Метрики — что считаем</div>'
+    + '<div class="bchips">' + chips(CATALOG.metrics, 'metrics') + '</div></div>'
+    + (warns.length ? '<div class="bwarn">' + warns.map(w => '<div>⚠ ' + esc(w) + '</div>').join('')
+        + '</div>' : '')
+    + '<div class="brow">'
+    + '<span class="dim">Строк: </span>'
+    + [20, 50, 200, 1000].map(n => '<button class="bchip small' + (BSEL.limit === n ? ' on' : '')
+        + '" data-kind="limit" data-id="' + n + '">' + n + '</button>').join('')
+    + '<button class="btn-primary" id="brun"' + (warns.length ? ' disabled' : '') + '>Построить</button>'
+    + '</div>'
+    + (sql ? '<details class="bsql"><summary>SQL, который соберётся</summary><pre>'
+        + esc(sql) + '</pre></details>' : '');
+
+  document.querySelectorAll('#bbody .bchip').forEach(b => {
+    b.onclick = () => {
+      const kind = b.dataset.kind, id = b.dataset.id;
+      if (kind === 'limit') { BSEL.limit = +id; }
+      else {
+        const arr = BSEL[kind], i = arr.indexOf(id);
+        if (i >= 0) arr.splice(i, 1); else arr.push(id);
+      }
+      renderBuilder();
+    };
+  });
+  const run = document.getElementById('brun');
+  if (run) run.onclick = runBuilder;
+}
+
+async function openBuilder(){
+  await loadModel();
+  sheet.className = 'sheet';
+  sheet.innerHTML = '<div class="card-header"><div class="card-title">Конструктор таблиц</div>'
+    + closeBtn + '</div>'
+    + '<div class="dim" style="font-size:12px;line-height:1.6;margin-bottom:12px">'
+    + 'Соберите свой разрез: выберите измерения и метрики. Метрики живут в разных витринах, '
+    + 'поэтому система предупредит, если выбранное измерение к метрике не привязано.</div>'
+    + '<div id="bbody"></div>';
+  modal.classList.add('on');
+  renderBuilder();
+}
+
+async function runBuilder(){
+  const sql = buildSql(), title = builderTitle(), chart = builderChart();
+  const formula = BSEL.metrics.map(id => metById(id).formula).join(' · ');
+  modal.classList.remove('on');
+  const empty = document.getElementById('empty');
+  if (empty) empty.style.display = 'none';
+  const feed = document.getElementById('feed');
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = '<div class="q">конструктор таблиц</div>'
+    + '<div class="meta"><span class="spin"></span> считаю…</div>';
+  feed.innerHTML = '';
+  feed.appendChild(card);
+  try {
+    const d = await runBuilderQuery(sql, title, chart, formula);
+    render(card, d);
+  } catch (e) {
+    card.innerHTML = '<div class="q">конструктор таблиц</div><div class="err">' + esc(e.message) + '</div>';
+  }
+}
+
+document.getElementById('builderbtn').onclick = openBuilder;
 
 document.getElementById('srcbtn').onclick = async () => {
   const d = await (await fetch('/api/sources')).json();
@@ -595,11 +817,16 @@ function render(card, d){
   const specs = miniSpecs(d);
   html += miniHtml(specs);
   if (!single && d.rows.length) {
-    html += '<div class="tbl-scroll"><table class="tbl"><thead><tr>'
+    // таблица раскрыта, только если графика нет или человек просил именно таблицу
+    const wantTable = !chart || /таблиц|список|перечен|выгруз|детализац|реестр/i
+      .test(String(d.question || '') + ' ' + String(d.title || ''));
+    html += '<details class="tbl-details"' + (wantTable ? ' open' : '') + '>'
+      + '<summary>Таблица · ' + d.rows.length + ' строк</summary>'
+      + '<div class="tbl-scroll"><table class="tbl"><thead><tr>'
       + d.columns.map(c => '<th>' + esc(prettyCol(c)) + '</th>').join('') + '</tr></thead><tbody>'
       + d.rows.map(r => '<tr>' + r.map((v, i) => '<td>' + fmtCell(v, d.columns[i]) + '</td>').join('')
         + '</tr>').join('')
-      + '</tbody></table></div>';
+      + '</tbody></table></div></details>';
   }
   html += provenance(d);
   html += '<details><summary>SQL-запрос, которым посчитано</summary><pre>' + esc(d.sql) + '</pre></details>';

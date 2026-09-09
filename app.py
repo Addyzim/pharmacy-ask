@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import model
 import verify
 from demo_questions import DEMO
 from provenance import FORMULAS, SOURCES as SRC, describe, tables_in_sql
@@ -109,6 +110,14 @@ class Ask(BaseModel):
 class Login(BaseModel):
     username: str
     password: str
+
+
+class Run(BaseModel):
+    """Запрос из конструктора: SQL собран интерфейсом по каталогу метрик."""
+    sql: str
+    title: str = ""
+    formula: str = ""
+    chart: dict = {}
 
 
 # ---------------------------------------------------------------- авторизация
@@ -309,6 +318,37 @@ def dl_sql(name: str):
 @app.get("/download/db")
 def dl_db():
     return FileResponse(DB, filename="pharmacy.db")
+
+
+@app.get("/api/model")
+def semantic_model():
+    """Каталог измерений и метрик для конструктора таблиц."""
+    return model.catalog()
+
+
+@app.post("/api/run")
+def run_builder(body: Run):
+    """Выполнить запрос конструктора. Проверки те же, что и для запросов модели:
+    только SELECT, один запрос, база открыта на чтение."""
+    t0 = time.time()
+    try:
+        sql = guard(body.sql)
+        cols, rows = run_sql(sql)
+    except Exception as e:
+        return JSONResponse({"error": f"Ошибка SQL: {e}", "sql": body.sql}, status_code=400)
+    return {
+        "question": "конструктор таблиц",
+        "answerable": True,
+        "title": body.title or "Своя таблица",
+        "sql": sql, "columns": cols, "rows": rows,
+        "chart": body.chart or {"type": "none"},
+        "answer": "",
+        "formula": body.formula,
+        "sources": describe(tables_in_sql(sql), row_counts()),
+        "verification": {"rows_returned": len(rows), "unverified_numbers": [], "status": "ok"},
+        "matched_question": "", "mode": "builder",
+        "elapsed": round(time.time() - t0, 1),
+    }
 
 
 @app.get("/api/schema")

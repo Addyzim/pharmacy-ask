@@ -45,6 +45,11 @@ def main():
     with open(os.path.join(DOCS, "sources.json"), "w", encoding="utf-8") as f:
         json.dump(src, f, ensure_ascii=False, indent=1)
 
+    # каталог конструктора таблиц
+    import model
+    with open(os.path.join(DOCS, "model.json"), "w", encoding="utf-8") as f:
+        json.dump(model.catalog(), f, ensure_ascii=False)
+
     # промпты для режима с ключом
     with open(os.path.join(DOCS, "prompts.json"), "w", encoding="utf-8") as f:
         json.dump({"system": SYSTEM, "insight": INSIGHT}, f, ensure_ascii=False)

@@ -213,15 +213,31 @@ def parse_json(txt: str) -> dict:
     return json.loads(m.group(0))
 
 
+STOP = {"сколько", "какие", "какая", "какой", "покажи", "дай", "мне", "нам", "есть",
+        "было", "были", "самый", "самая", "лучше", "хуже", "всего", "этом", "наши"}
+
+
 def demo_match(question: str):
-    q = set(re.findall(r"\w{4,}", question.lower()))
+    """Подбор готового вопроса по общим основам слов (демо-режим без ключа)."""
+    words = [w for w in re.findall(r"[\w]{4,}", question.lower().replace("ё", "е"))
+             if w not in STOP]
+    if not words:
+        return None
     best, score = None, 0
     for d in DEMO:
-        keys = set(re.findall(r"\w{4,}", (d["q"] + " " + " ".join(d["keys"])).lower()))
-        s = len(q & keys)
+        hay = (d["q"] + " " + " ".join(d["keys"])).lower().replace("ё", "е")
+        s = 0
+        for w in words:
+            if w in hay:
+                s += 3                       # слово целиком
+            elif len(w) >= 6 and w[:6] in hay:
+                s += 2                       # общая основа
+            elif w[:4] in hay:
+                s += 1
         if s > score:
             best, score = d, s
-    return best if score >= 2 else None
+    need = 2 if len(words) > 1 else 1        # на однословный вопрос хватает одного совпадения
+    return best if score >= need else None
 
 
 # ------------------------------------------------------------------------ API
@@ -320,10 +336,17 @@ def ask(body: Ask):
         else:
             d = demo_match(question)
             if not d:
-                return JSONResponse({
-                    "error": "Оффлайн-режим: задайте ANTHROPIC_API_KEY или выберите "
-                             "готовый вопрос из подсказок ниже.",
-                    "demo_questions": [x["q"] for x in DEMO]}, status_code=503)
+                return {
+                    "question": question, "answerable": False,
+                    "title": "Не могу ответить на этот вопрос",
+                    "answer": "Сервис работает в демо-режиме без ключа модели: отвечаю только "
+                              "на готовые вопросы из подсказок под строкой ввода. "
+                              "С ключом Claude API запрос строится под любой вопрос по витрине.",
+                    "sql": "", "columns": [], "rows": [], "chart": {"type": "none"},
+                    "formula": "", "sources": [],
+                    "verification": {"rows_returned": 0, "unverified_numbers": [], "status": "ok"},
+                    "mode": "demo", "elapsed": round(time.time() - t0, 1),
+                }
             plan, mode = dict(d["plan"]), "demo"
     except Exception as e:
         return JSONResponse({"error": f"Не удалось построить запрос: {e}"}, status_code=500)

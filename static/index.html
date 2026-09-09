@@ -657,11 +657,9 @@ function deltaRows(dp, labels, isTime, type){
   const nums = data.filter(x => typeof x === 'number');
   const rows = [];
 
-  if (type === 'doughnut') {
-    const total = nums.reduce((a, b) => a + b, 0);
-    if (total) rows.push({name: 'доля в общем', abs: (100 * v / total).toFixed(1).replace('.', ',') + '%',
-      rel: '', cls: ''});
-  }
+  const shareOf = dp.dataset.shareOf;
+  if (shareOf) rows.push({name: 'доля в общем', rel: '', cls: '',
+    abs: (100 * v / shareOf).toFixed(1).replace('.', ',') + '%'});
 
   const add = (base, name) => {
     if (typeof base !== 'number') return;
@@ -831,7 +829,7 @@ function miniSpecs(d){
     const rest = pairs.slice(6).reduce((a, p) => a + p[1], 0);
     if (rest > 0) top.push(['Прочие', rest]);
     specs.push({
-      title: 'Доля в общем итоге', type: 'doughnut', colName: col,
+      title: 'Доля в общем итоге', type: 'hbar', share: true, colName: col,
       labels: top.map(p => p[0]), data: top.map(p => p[1]),
     });
   }
@@ -847,65 +845,57 @@ function miniHtml(specs){
 
 function drawMini(cv, sp){
   if (!cv) return;
-  const isPie = sp.type === 'doughnut';
+  const horiz = sp.type === 'hbar';
+  const total = sp.data.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
   const ds = [{
     label: prettyCol(sp.colName), colName: sp.colName, data: sp.data,
-    backgroundColor: isPie ? PALETTE : PALETTE[0],
-    borderRadius: isPie ? 0 : 5, borderSkipped: false, borderWidth: 0,
+    shareOf: sp.share && total ? total : 0,
+    backgroundColor: horiz ? sp.labels.map((_, i) => PALETTE[i % PALETTE.length]) : PALETTE[0],
+    borderRadius: 5, borderSkipped: false, borderWidth: 0,
   }];
-  const med = isPie ? null : median(sp.data);
+  if (horiz && cv.parentElement) {
+    cv.parentElement.style.height = Math.max(170, Math.min(360, 30 * sp.labels.length + 34)) + 'px';
+  }
   new Chart(cv, {
-    plugins: [medianPlugin],
-    type: sp.type,
+    plugins: [medianPlugin], type: 'bar',
     data: {labels: sp.labels, datasets: ds},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      layout: {padding: {top: isPie ? 4 : 26, right: isPie ? 0 : 8}},
-      plugins: {
-        medianLine: med === null ? {} : {value: med, label: fmtLabel(med, sp.colName)},
-        datalabels: dataLabels(sp.type, sp.labels, ds),
-        legend: {display: isPie, position: 'right',
-          labels: {boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle',
-            font: {family: 'Inter', size: 10, weight: '700'}, color: '#5f6368', padding: 10}},
-        tooltip: {enabled: false, position: 'nearest',
-          external: c => externalTooltip(c, sp.labels, false, sp.type)},
-      },
-      scales: isPie ? {} : {
-        x: {grid: {display: false}, border: {display: false},
-            ticks: {font: {family: 'Inter', size: 10}, color: '#9aa0a6'}},
-        y: {beginAtZero: true, grid: {color: '#f1f5f9'}, border: {display: false},
-            ticks: {font: {family: 'Inter', size: 10}, color: '#9aa0a6',
-                    maxTicksLimit: 4, callback: v => fmtAxis(v)}},
-      },
-    },
+    options: chartOptions({mode: horiz ? 'hbar' : 'bar', labels: sp.labels, ds: ds,
+      med: horiz ? null : median(sp.data), isTime: false, compact: true}),
   });
 }
 
-/* полоса медианы: пунктир поперёк области графика с подписью справа */
+/* полоса медианы: пунктир поперёк области графика с подписью */
 const medianPlugin = {
   id: 'medianLine',
   afterDatasetsDraw(chart, args, opts){
     if (!opts || opts.value === null || opts.value === undefined) return;
-    const y = chart.scales.y;
-    if (!y) return;
-    const py = y.getPixelForValue(opts.value);
+    const horiz = opts.axis === 'x';
+    const scale = horiz ? chart.scales.x : chart.scales.y;
+    if (!scale) return;
+    const p = scale.getPixelForValue(opts.value);
     const area = chart.chartArea;
-    if (py < area.top || py > area.bottom) return;
     const ctx = chart.ctx;
+    const text = 'медиана · ' + opts.label;
     ctx.save();
     ctx.setLineDash([4, 4]);
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = '#9aa0a6';
     ctx.beginPath();
-    ctx.moveTo(area.left, py);
-    ctx.lineTo(area.right, py);
+    if (horiz) {
+      if (p < area.left || p > area.right) { ctx.restore(); return; }
+      ctx.moveTo(p, area.top);
+      ctx.lineTo(p, area.bottom);
+    } else {
+      if (p < area.top || p > area.bottom) { ctx.restore(); return; }
+      ctx.moveTo(area.left, p);
+      ctx.lineTo(area.right, p);
+    }
     ctx.stroke();
     ctx.setLineDash([]);
-    const text = 'медиана · ' + opts.label;
     ctx.font = '700 10px Inter, sans-serif';
     const w = ctx.measureText(text).width + 12;
-    const x = Math.max(area.left, area.right - w);
-    const top = py - 15 < area.top ? py + 3 : py - 15;
+    const x = horiz ? Math.min(p + 4, area.right - w) : Math.max(area.left, area.right - w);
+    const top = horiz ? area.top : (p - 15 < area.top ? p + 3 : p - 15);
     ctx.fillStyle = 'rgba(255,255,255,.92)';
     ctx.fillRect(x, top, w, 13);
     ctx.fillStyle = '#5f6368';
@@ -931,30 +921,61 @@ function fmtLabel(v, col){
   return Math.abs(v) >= 1e6 ? fmtAxis(v) : fmtFull(v);
 }
 
-function dataLabels(type, labels, ds){
+function dataLabels(mode, labels, ds){
+  const horiz = mode === 'hbar', line = mode === 'line';
   const lastIdx = labels.length - 1;
-  const step = Math.max(1, Math.ceil(labels.length / (type === 'line' ? 12 : 16)));
-  const total = ds[0].data.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
-  const isLastPoint = ctx => type === 'line' && ctx.dataIndex === lastIdx;
+  const step = Math.max(1, Math.ceil(labels.length / (line ? 12 : 16)));
+  const isLastPoint = ctx => line && ctx.dataIndex === lastIdx;
   return {
     display: ctx => {
-      if (type === 'doughnut') return total ? ctx.dataset.data[ctx.dataIndex] / total >= 0.04 : true;
-      if (type === 'line') return ctx.dataIndex === lastIdx || ctx.dataIndex % step === 0;
+      if (horiz) return labels.length <= 20;
+      if (line) return ctx.dataIndex === lastIdx || ctx.dataIndex % step === 0;
       return ctx.dataIndex % step === 0;
     },
     formatter: (v, ctx) => {
       if (v === null || v === undefined) return '';
-      if (type === 'doughnut') return total ? Math.round(100 * v / total) + '%' : fmtLabel(v);
-      return fmtLabel(v, ctx.dataset.colName);
+      const val = fmtLabel(v, ctx.dataset.colName);
+      const total = ctx.dataset.shareOf;
+      return total ? val + '  ·  ' + (100 * v / total).toFixed(1).replace('.', ',') + '%' : val;
     },
-    color: ctx => type === 'doughnut' ? '#fff' : (isLastPoint(ctx) ? '#fff' : '#5f6368'),
+    color: ctx => isLastPoint(ctx) ? '#fff' : '#5f6368',
     backgroundColor: ctx => isLastPoint(ctx) ? PALETTE[ctx.datasetIndex % PALETTE.length] : null,
     borderRadius: 4,
     padding: ctx => isLastPoint(ctx) ? {top: 3, bottom: 3, left: 6, right: 6} : 2,
     font: {family: 'Inter', size: 10, weight: '700'},
-    anchor: type === 'doughnut' ? 'center' : 'end',
-    align: type === 'doughnut' ? 'center' : 'top',
-    offset: 2, clamp: true,
+    anchor: 'end', align: horiz ? 'right' : 'top', offset: horiz ? 4 : 2, clamp: true,
+  };
+}
+
+/* общие настройки: вертикальные столбцы, горизонтальные столбцы и линия */
+function chartOptions(o){
+  const horiz = o.mode === 'hbar';
+  const valueTicks = {font: {family: 'Inter', size: 10}, color: '#9aa0a6',
+    maxTicksLimit: o.compact ? 4 : 5, callback: v => fmtAxis(v)};
+  return {
+    responsive: true, maintainAspectRatio: false, indexAxis: horiz ? 'y' : 'x',
+    layout: {padding: {top: horiz ? 6 : (o.compact ? 26 : 34),
+      right: horiz ? (o.share ? 108 : 74) : (o.compact ? 8 : 24), bottom: 0, left: 0}},
+    plugins: {
+      medianLine: (o.med === null || o.med === undefined) ? {}
+        : {value: o.med, label: fmtLabel(o.med, o.ds[0].colName), axis: horiz ? 'x' : 'y'},
+      datalabels: dataLabels(o.mode, o.labels, o.ds),
+      legend: {display: o.ds.length > 1, position: 'top', align: 'end',
+        labels: {boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle',
+          font: {family: 'Inter', size: 10, weight: '700'}, color: '#5f6368', padding: 12}},
+      tooltip: {enabled: false, position: 'nearest',
+        external: c => externalTooltip(c, o.labels, o.isTime, o.mode)},
+    },
+    scales: horiz ? {
+      x: {beginAtZero: true, grid: {color: '#f1f5f9'}, border: {display: false}, ticks: valueTicks},
+      y: {grid: {display: false}, border: {display: false},
+        ticks: {font: {family: 'Inter', size: 11}, color: '#5f6368', autoSkip: false}},
+    } : {
+      x: {grid: {display: false}, border: {display: false},
+        ticks: {font: {family: 'Inter', size: 10}, color: '#9aa0a6', maxTicksLimit: 30,
+          maxRotation: 45, autoSkip: true}},
+      y: {beginAtZero: true, grid: {color: '#f1f5f9'}, border: {display: false}, ticks: valueTicks},
+    },
   };
 }
 
@@ -966,13 +987,19 @@ function drawChart(cv, d){
     && d.rows.every(r => typeof r[i] === 'number')).slice(0, 2);
   if (!ys.length) return;
   const labels = d.rows.map(r => String(r[xi]));
-  const type = d.chart.type === 'pie' ? 'doughnut' : d.chart.type;
+  const raw = String(d.chart.type || 'bar');
+  // круговые не рисуем: доли читаются точнее по горизонтальным столбцам
+  const shareAsked = raw === 'pie' || raw === 'doughnut' || d.chart.share === true;
+  const mode = raw === 'line' ? 'line' : ((shareAsked || raw === 'hbar') ? 'hbar' : 'bar');
   const many = d.rows.length > 60;
-  // динамика — если это линия или подписи оси похожи на даты
-  const isTime = type === 'line' || /^\d{4}-\d{2}/.test(String(labels[0] || ''));
+  const isTime = mode === 'line' || /^\d{4}-\d{2}/.test(String(labels[0] || ''));
+  const values = d.rows.map(r => r[ys[0]]);
+  const total = values.reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+  const share = shareAsked && ys.length === 1 && total > 0 && values.every(v => v >= 0);
+
   const ds = ys.map((i, k) => {
     const color = PALETTE[k % PALETTE.length];
-    if (type === 'line') return {
+    if (mode === 'line') return {
       label: prettyCol(d.columns[i]), colName: d.columns[i], data: d.rows.map(r => r[i]),
       borderColor: color, backgroundColor: 'transparent', pointBackgroundColor: color,
       borderWidth: 2.5, pointRadius: many ? 0 : 4, pointHoverRadius: 6, pointHitRadius: 14,
@@ -980,13 +1007,16 @@ function drawChart(cv, d){
     };
     return {
       label: prettyCol(d.columns[i]), colName: d.columns[i], data: d.rows.map(r => r[i]),
-      backgroundColor: type === 'doughnut' ? PALETTE : color,
+      shareOf: share && k === 0 ? total : 0,
+      backgroundColor: mode === 'hbar' && ys.length === 1
+        ? labels.map((_, j) => PALETTE[j % PALETTE.length]) : color,
       borderRadius: 5, borderSkipped: false, borderWidth: 0,
     };
   });
+
   // пунктирная линия прошлого года — только по точкам, которые есть в самих данных
   let yoyPoints = 0;
-  if (isTime && ys.length === 1) {
+  if (isTime && ys.length === 1 && mode === 'line') {
     const base = d.rows.map(r => r[ys[0]]);
     const prev = labels.map((_, i) => {
       const j = yoyIndex(labels, i);
@@ -1002,7 +1032,7 @@ function drawChart(cv, d){
     });
   }
 
-  const med = type === 'doughnut' ? null : median(ds[0].data);
+  const med = share ? null : median(ds[0].data);
 
   const note = cv.closest('.card') ? cv.closest('.card').querySelector('[data-note]') : null;
   if (note) {
@@ -1011,31 +1041,17 @@ function drawChart(cv, d){
       : (med !== null ? 'Пунктир — медиана ряда' + (yoyPoints ? ' и прошлый год' : '') + '.' : '');
   }
 
+  // горизонтальным столбцам нужна высота под количество категорий
+  if (mode === 'hbar' && cv.parentElement) {
+    cv.parentElement.style.height = Math.max(200, Math.min(460, 34 * labels.length + 40)) + 'px';
+  }
+
   new Chart(cv, {
     plugins: [medianPlugin],
-    type: type,
+    type: mode === 'line' ? 'line' : 'bar',
     data: {labels: labels, datasets: ds},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      layout: {padding: {top: type === 'doughnut' ? 10 : 34, right: type === 'doughnut' ? 0 : 24, bottom: 0, left: 0}},
-      plugins: {
-        medianLine: med === null ? {} : {value: med, label: fmtLabel(med, ds[0].colName)},
-        datalabels: dataLabels(type, labels, ds),
-        legend: {display: type === 'doughnut' || ds.length > 1, position: type === 'doughnut' ? 'right' : 'top',
-          align: 'end', labels: {boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle',
-            font: {family: 'Inter', size: 10, weight: '700'}, color: '#5f6368', padding: 12}},
-        tooltip: {enabled: false, position: 'nearest',
-          external: c => externalTooltip(c, labels, isTime, type)}
-      },
-      scales: type === 'doughnut' ? {} : {
-        x: {grid: {display: false}, border: {display: false},
-            ticks: {font: {family: 'Inter', size: 10}, color: '#9aa0a6',
-                    maxTicksLimit: 30, maxRotation: 45, autoSkip: true}},
-        y: {beginAtZero: true, grid: {color: '#f1f5f9'}, border: {display: false},
-            ticks: {font: {family: 'Inter', size: 10}, color: '#9aa0a6',
-                    maxTicksLimit: 5, callback: v => fmtAxis(v)}}
-      }
-    }
+    options: chartOptions({mode: mode, labels: labels, ds: ds, med: med,
+      isTime: isTime, share: share}),
   });
 }
 </script>

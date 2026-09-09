@@ -94,7 +94,7 @@ FROM refusals GROUP BY Товар, Группа ORDER BY Отказов DESC LIM
             "title": "Продажи по товарным группам",
             "sql": """SELECT Группа, ROUND(SUM(СуммаСоСкидкой)) AS Выручка
 FROM sales_weekly GROUP BY Группа ORDER BY Выручка DESC""",
-            "chart": {"type": "pie", "x": "Группа", "y": ["Выручка"]},
+            "chart": {"type": "hbar", "x": "Группа", "y": ["Выручка"]},
             "note": "Доля каждой товарной группы в выручке.",
         },
     },
@@ -144,7 +144,7 @@ GROUP BY Склад ORDER BY Сумма_остатка DESC""",
             "title": "Онлайн-заказы по статусам",
             "sql": """SELECT Статус, COUNT(*) AS Заказов, ROUND(SUM(Сумма_с_НДС)) AS Сумма
 FROM sales_online GROUP BY Статус ORDER BY Сумма DESC""",
-            "chart": {"type": "pie", "x": "Статус", "y": ["Сумма"]},
+            "chart": {"type": "hbar", "x": "Статус", "y": ["Сумма"]},
             "note": "Распределение онлайн-заказов и их суммы по статусам.",
         },
     },

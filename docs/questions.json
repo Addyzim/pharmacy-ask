@@ -166,7 +166,7 @@
    "title": "Продажи по товарным группам",
    "sql": "SELECT Группа, ROUND(SUM(СуммаСоСкидкой)) AS Выручка\nFROM sales_weekly GROUP BY Группа ORDER BY Выручка DESC",
    "chart": {
-    "type": "pie",
+    "type": "hbar",
     "x": "Группа",
     "y": [
      "Выручка"
@@ -254,7 +254,7 @@
    "title": "Онлайн-заказы по статусам",
    "sql": "SELECT Статус, COUNT(*) AS Заказов, ROUND(SUM(Сумма_с_НДС)) AS Сумма\nFROM sales_online GROUP BY Статус ORDER BY Сумма DESC",
    "chart": {
-    "type": "pie",
+    "type": "hbar",
     "x": "Статус",
     "y": [
      "Сумма"
@@ -343,7 +343,7 @@
    "title": "Рецептурные и безрецептурные",
    "sql": "SELECT Рецептурный, ROUND(SUM(СуммаСоСкидкой)) AS Выручка,\n       SUM(Количество) AS Штук\nFROM sales_weekly GROUP BY Рецептурный ORDER BY Выручка DESC",
    "chart": {
-    "type": "pie",
+    "type": "hbar",
     "x": "Рецептурный",
     "y": [
      "Выручка"
@@ -432,7 +432,7 @@
    "title": "Продажи по полу покупателя",
    "sql": "SELECT Пол, COUNT(DISTINCT Номер) AS Чеков, ROUND(SUM(Выручка)) AS Выручка,\n       ROUND(SUM(Выручка)/COUNT(DISTINCT Номер)) AS Средний_чек\nFROM check_lines WHERE ВидОперации='Продажа' AND Пол IS NOT NULL\nGROUP BY Пол ORDER BY Выручка DESC",
    "chart": {
-    "type": "pie",
+    "type": "hbar",
     "x": "Пол",
     "y": [
      "Выручка"

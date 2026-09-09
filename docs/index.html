@@ -78,8 +78,11 @@ main{padding:20px 24px 40px;display:flex;flex-direction:column;gap:20px}
   color:var(--text-muted);margin-top:2px}
 .chartbox{position:relative;height:270px;margin:4px 0 14px}
 
-.tbl-scroll{overflow:auto;max-height:340px;border:1px solid var(--border);border-radius:10px}
-.tbl{border-collapse:collapse;font-size:12px;white-space:nowrap;width:100%}
+.tbl-scroll{overflow:auto;max-height:340px;border:1px solid var(--border);border-radius:10px;
+  display:inline-block;max-width:100%;vertical-align:top}
+.tbl{border-collapse:collapse;font-size:12px;white-space:nowrap;width:auto;min-width:320px}
+.tbl td:first-child,.tbl th:first-child{min-width:148px}
+.tbl th:not(:first-child),.tbl td:not(:first-child){min-width:88px}
 .tbl thead{position:sticky;top:0;z-index:4}
 .tbl th{background:#fff;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.3px;
   text-transform:uppercase;padding:8px 10px 6px;text-align:right;border-bottom:1px solid var(--border);
@@ -714,7 +717,7 @@ document.getElementById('srcbtn').onclick = () => {
     + 'Каждый ответ считается SQL-запросом только по этим данным — ничего не додумывается.</div>'
     + '<div class="dl"><a href="sql/pharmacy_dump.sql">SQL-дамп витрины</a>'
     + '<a href="sql/schema.sql">SQL-схема (DDL)</a><a href="pharmacy.db">Файл базы SQLite</a></div>'
-    + '<div class="tbl-scroll" style="max-height:none"><table class="tbl"><thead><tr><th>Витрина</th>'
+    + '<div class="tbl-scroll" style="max-height:none;display:block"><table class="tbl"><thead><tr><th>Витрина</th>'
     + '<th style="text-align:left">Таблица</th><th>Строк</th><th style="text-align:left">Исходный Excel</th>'
     + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   modal.classList.add('on');
